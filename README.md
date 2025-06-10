@@ -2,6 +2,10 @@
 
 🧾 GitHub の活動レシート - あなたの頑張りを美しく表示
 
+<p align="center" width="100%">
+  <img src="https://github.com/user-attachments/assets/43c81f98-4484-448a-be9f-663352a8df04" width="200" />
+</p>
+
 ## 特徴
 
 - 📊 公開/プライベートリポジトリの活動を分けて集計
