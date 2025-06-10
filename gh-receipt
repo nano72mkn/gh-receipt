@@ -14,19 +14,22 @@ Options:
   -w, --weekly    過去7日間のデータを表示
   -m, --monthly   過去30日間のデータを表示
   -y, --yearly    過去365日間のデータを表示
+  --diff          前期間との比較を表示
 
 Examples:
   gh-receipt                    # 自分の過去30日間の活動
   gh-receipt nano72mkn          # 特定ユーザーの過去30日間
   gh-receipt -w                 # 自分の過去7日間
   gh-receipt nano72mkn --weekly # 特定ユーザーの過去7日間
-  gh-receipt nano72mkn -d 90    # 特定ユーザーの過去90日間
+  gh-receipt -w --diff          # 今週vs先週の比較
+  gh-receipt -m --diff          # 今月vs先月の比較
 EOF
 }
 
 # デフォルト値
 USERNAME=""
 DAYS=30
+SHOW_DIFF=false
 
 # 引数解析
 while [[ $# -gt 0 ]]; do
@@ -50,6 +53,10 @@ while [[ $# -gt 0 ]]; do
         -d|--days)
             DAYS="$2"
             shift 2
+            ;;
+        --diff)
+            SHOW_DIFF=true
+            shift
             ;;
         -*)
             echo "エラー: 不明なオプション: $1"
@@ -77,7 +84,8 @@ fi
 # 色の定義（レシート風にモノクロメイン）
 DIM='\033[2m'
 BOLD='\033[1m'
-REVERSE='\033[7m'
+GREEN='\033[32m'
+RED='\033[31m'
 NC='\033[0m'
 
 # 日付計算（macOS と Linux の両方に対応）
@@ -86,38 +94,58 @@ if date -v -1d >/dev/null 2>&1; then
     FROM_DATE=$(date -v-${DAYS}d -u +%Y-%m-%dT%H:%M:%SZ)
     TODAY=$(date +%Y-%m-%d)
     CURRENT_TIME=$(date "+%Y/%m/%d %H:%M:%S")
+    
+    # 前期間の日付計算
+    if [ "$SHOW_DIFF" = true ]; then
+        PREV_FROM_DATE=$(date -v-$((DAYS * 2))d -u +%Y-%m-%dT%H:%M:%SZ)
+        PREV_TO_DATE=$(date -v-$((DAYS + 1))d -u +%Y-%m-%dT%H:%M:%SZ)
+    fi
 else
     # Linux
     FROM_DATE=$(date -u -d "${DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
     TODAY=$(date +%Y-%m-%d)
     CURRENT_TIME=$(date "+%Y/%m/%d %H:%M:%S")
+    
+    # 前期間の日付計算
+    if [ "$SHOW_DIFF" = true ]; then
+        PREV_FROM_DATE=$(date -u -d "$((DAYS * 2)) days ago" +%Y-%m-%dT%H:%M:%SZ)
+        PREV_TO_DATE=$(date -u -d "$((DAYS + 1)) days ago" +%Y-%m-%dT%H:%M:%SZ)
+    fi
 fi
 
 echo -e "${DIM}データ取得中...${NC}"
 
-# GraphQL クエリでデータ取得
-RESPONSE=$(gh api graphql -f query='
-  query($username: String!, $from: DateTime!, $to: DateTime!) {
-    user(login: $username) {
-      contributionsCollection(from: $from, to: $to) {
-        totalCommitContributions
-        totalPullRequestContributions
-        totalPullRequestReviewContributions
-        totalIssueContributions
-        restrictedContributionsCount
-        contributionCalendar {
-          totalContributions
-          weeks {
-            contributionDays {
-              date
-              contributionCount
+# 現在期間のデータ取得
+get_period_data() {
+    local from=$1
+    local to=$2
+    
+    gh api graphql -f query='
+      query($username: String!, $from: DateTime!, $to: DateTime!) {
+        user(login: $username) {
+          contributionsCollection(from: $from, to: $to) {
+            totalCommitContributions
+            totalPullRequestContributions
+            totalPullRequestReviewContributions
+            totalIssueContributions
+            restrictedContributionsCount
+            contributionCalendar {
+              totalContributions
+              weeks {
+                contributionDays {
+                  date
+                  contributionCount
+                }
+              }
             }
           }
         }
       }
-    }
-  }
-' -f username="$USERNAME" -f from="$FROM_DATE" -f to="${TODAY}T23:59:59Z" 2>/dev/null) || {
+    ' -f username="$USERNAME" -f from="$from" -f to="$to" 2>/dev/null
+}
+
+# 現在期間のデータ
+RESPONSE=$(get_period_data "$FROM_DATE" "${TODAY}T23:59:59Z") || {
     echo -e "エラー: データの取得に失敗しました"
     exit 1
 }
@@ -130,6 +158,45 @@ PUBLIC_ISSUES=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.tot
 PRIVATE_TOTAL=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.restrictedContributionsCount // 0')
 TOTAL_CONTRIBUTIONS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.totalContributions')
 
+# 前期間のデータ（比較モードの場合）
+if [ "$SHOW_DIFF" = true ]; then
+    PREV_RESPONSE=$(get_period_data "$PREV_FROM_DATE" "$PREV_TO_DATE") || {
+        echo -e "エラー: 前期間のデータ取得に失敗しました"
+        SHOW_DIFF=false
+    }
+    
+    if [ "$SHOW_DIFF" = true ]; then
+        PREV_PUBLIC_COMMITS=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.totalCommitContributions')
+        PREV_PUBLIC_PRS=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.totalPullRequestContributions')
+        PREV_PUBLIC_REVIEWS=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.totalPullRequestReviewContributions')
+        PREV_PUBLIC_ISSUES=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.totalIssueContributions')
+        PREV_PRIVATE_TOTAL=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.restrictedContributionsCount // 0')
+        PREV_TOTAL=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.totalContributions')
+    fi
+fi
+
+# 差分計算と表示関数
+format_diff() {
+    local current=$1
+    local previous=$2
+    local diff=$((current - previous))
+    local percent=0
+    
+    if [ "$previous" -gt 0 ]; then
+        percent=$(( (diff * 100) / previous ))
+    elif [ "$current" -gt 0 ]; then
+        percent=100
+    fi
+    
+    if [ "$diff" -gt 0 ]; then
+        printf "${GREEN}+%-3d (+%d%%)${NC}" "$diff" "$percent"
+    elif [ "$diff" -lt 0 ]; then
+        printf "${RED}%-4d (%d%%)${NC}" "$diff" "$percent"
+    else
+        printf "    (±0%%)"
+    fi
+}
+
 # レシート風出力
 echo
 echo "================================================"
@@ -141,13 +208,39 @@ echo "  ${CURRENT_TIME}                    "
 echo "  USER: @${USERNAME}                           "
 echo "------------------------------------------------"
 echo "                                                "
-printf "  %-30s %10s\n" "COMMITS (PUBLIC)" "${PUBLIC_COMMITS}"
-printf "  %-30s %10s\n" "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
-printf "  %-30s %10s\n" "PULL REQUESTS" "${PUBLIC_PRS}"
-printf "  %-30s %10s\n" "CODE REVIEWS" "${PUBLIC_REVIEWS}"
-printf "  %-30s %10s\n" "ISSUES" "${PUBLIC_ISSUES}"
-echo "                                  ------------- "
-printf "  ${BOLD}%-30s %10s${NC}\n" "TOTAL ACTIVITIES" "${TOTAL_CONTRIBUTIONS}"
+
+if [ "$SHOW_DIFF" = true ]; then
+    printf "  %-22s %7s  %12s\n" "ITEM" "COUNT" "vs LAST"
+    printf "  %-22s %7s  %12s\n" "----" "-----" "-------"
+    printf "  %-22s %7d  " "COMMITS (PUBLIC)" "${PUBLIC_COMMITS}"
+    format_diff "$PUBLIC_COMMITS" "$PREV_PUBLIC_COMMITS"
+    echo
+    printf "  %-22s %7d  " "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
+    format_diff "$PRIVATE_TOTAL" "$PREV_PRIVATE_TOTAL"
+    echo
+    printf "  %-22s %7d  " "PULL REQUESTS" "${PUBLIC_PRS}"
+    format_diff "$PUBLIC_PRS" "$PREV_PUBLIC_PRS"
+    echo
+    printf "  %-22s %7d  " "CODE REVIEWS" "${PUBLIC_REVIEWS}"
+    format_diff "$PUBLIC_REVIEWS" "$PREV_PUBLIC_REVIEWS"
+    echo
+    printf "  %-22s %7d  " "ISSUES" "${PUBLIC_ISSUES}"
+    format_diff "$PUBLIC_ISSUES" "$PREV_PUBLIC_ISSUES"
+    echo
+    echo "                         ------- -------------"
+    printf "  ${BOLD}%-22s %7d  " "TOTAL ACTIVITIES" "${TOTAL_CONTRIBUTIONS}"
+    format_diff "$TOTAL_CONTRIBUTIONS" "$PREV_TOTAL"
+    echo "${NC}"
+else
+    printf "  %-30s %10s\n" "COMMITS (PUBLIC)" "${PUBLIC_COMMITS}"
+    printf "  %-30s %10s\n" "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
+    printf "  %-30s %10s\n" "PULL REQUESTS" "${PUBLIC_PRS}"
+    printf "  %-30s %10s\n" "CODE REVIEWS" "${PUBLIC_REVIEWS}"
+    printf "  %-30s %10s\n" "ISSUES" "${PUBLIC_ISSUES}"
+    echo "                                  ------------- "
+    printf "  ${BOLD}%-30s %10s${NC}\n" "TOTAL ACTIVITIES" "${TOTAL_CONTRIBUTIONS}"
+fi
+
 echo "================================================"
 echo "                                                "
 
@@ -177,6 +270,18 @@ echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalenda
 }
 
 echo "                                                "
+
+# 比較期間の表示
+if [ "$SHOW_DIFF" = true ]; then
+    echo "------------------------------------------------"
+    case $DAYS in
+        7)  echo "  COMPARISON: This week vs Last week" ;;
+        30) echo "  COMPARISON: This month vs Last month" ;;
+        365) echo "  COMPARISON: This year vs Last year" ;;
+        *)  echo "  COMPARISON: Last ${DAYS} days vs Previous ${DAYS}" ;;
+    esac
+fi
+
 echo "================================================"
 
 # レシート番号とバーコード風

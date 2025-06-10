@@ -54,6 +54,11 @@ gh-receipt --monthly       # 月間レポート（30日間）
 gh-receipt -y              # 年間レポート（365日間）
 gh-receipt -d 90           # カスタム期間（90日間）
 
+# 前期間との比較
+gh-receipt -w --diff       # 今週 vs 先週
+gh-receipt -m --diff       # 今月 vs 先月
+gh-receipt -y --diff       # 今年 vs 昨年
+
 # ユーザー指定と組み合わせ
 gh-receipt nano72mkn -w    # nano72mkn の週間レポート
 ```
