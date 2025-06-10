@@ -2,6 +2,9 @@
   "name": "gh-receipt",
   "version": "3.1.0",
   "description": "📊 Your GitHub activity receipt - Beautiful contribution reports for your terminal",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "gh-receipt": "./gh-receipt"
   },
