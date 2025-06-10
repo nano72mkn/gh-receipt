@@ -59,6 +59,10 @@ gh-receipt -w --diff       # 今週 vs 先週
 gh-receipt -m --diff       # 今月 vs 先月
 gh-receipt -y --diff       # 今年 vs 昨年
 
+# 公開リポジトリのみ（SNS投稿用）
+gh-receipt --public        # プライベートリポジトリを除外
+gh-receipt -w --public     # 週間・公開のみ
+
 # ユーザー指定と組み合わせ
 gh-receipt nano72mkn -w    # nano72mkn の週間レポート
 ```

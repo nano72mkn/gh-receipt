@@ -15,6 +15,7 @@ Options:
   -m, --monthly   過去30日間のデータを表示
   -y, --yearly    過去365日間のデータを表示
   --diff          前期間との比較を表示
+  --public        公開リポジトリのみ表示（プライベートを除外）
 
 Examples:
   gh-receipt                    # 自分の過去30日間の活動
@@ -23,6 +24,7 @@ Examples:
   gh-receipt nano72mkn --weekly # 特定ユーザーの過去7日間
   gh-receipt -w --diff          # 今週vs先週の比較
   gh-receipt -m --diff          # 今月vs先月の比較
+  gh-receipt --public           # 公開リポジトリのみ（SNS投稿用）
 EOF
 }
 
@@ -30,6 +32,7 @@ EOF
 USERNAME=""
 DAYS=30
 SHOW_DIFF=false
+PUBLIC_ONLY=false
 
 # 引数解析
 while [[ $# -gt 0 ]]; do
@@ -56,6 +59,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --diff)
             SHOW_DIFF=true
+            shift
+            ;;
+        --public)
+            PUBLIC_ONLY=true
             shift
             ;;
         -*)
@@ -152,6 +159,12 @@ PUBLIC_COMMITS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.to
 PRIVATE_TOTAL=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.restrictedContributionsCount // 0')
 TOTAL_CONTRIBUTIONS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.totalContributions')
 
+# 公開のみモードの場合、プライベートを0にする
+if [ "$PUBLIC_ONLY" = true ]; then
+    PRIVATE_TOTAL=0
+    TOTAL_CONTRIBUTIONS=$PUBLIC_COMMITS
+fi
+
 # 前期間のデータ（比較モードの場合）
 if [ "$SHOW_DIFF" = true ]; then
     PREV_RESPONSE=$(get_period_data "$PREV_FROM_DATE" "$PREV_TO_DATE") || {
@@ -163,6 +176,12 @@ if [ "$SHOW_DIFF" = true ]; then
         PREV_PUBLIC_COMMITS=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.totalCommitContributions')
         PREV_PRIVATE_TOTAL=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.restrictedContributionsCount // 0')
         PREV_TOTAL=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.totalContributions')
+        
+        # 公開のみモードの場合、前期間もプライベートを0にする
+        if [ "$PUBLIC_ONLY" = true ]; then
+            PREV_PRIVATE_TOTAL=0
+            PREV_TOTAL=$PREV_PUBLIC_COMMITS
+        fi
     fi
 fi
 
@@ -206,16 +225,20 @@ if [ "$SHOW_DIFF" = true ]; then
     printf "  %-22s %7d  " "COMMITS (PUBLIC)" "${PUBLIC_COMMITS}"
     format_diff "$PUBLIC_COMMITS" "$PREV_PUBLIC_COMMITS"
     echo
-    printf "  %-22s %7d  " "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
-    format_diff "$PRIVATE_TOTAL" "$PREV_PRIVATE_TOTAL"
-    echo
+    if [ "$PUBLIC_ONLY" = false ]; then
+        printf "  %-22s %7d  " "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
+        format_diff "$PRIVATE_TOTAL" "$PREV_PRIVATE_TOTAL"
+        echo
+    fi
     echo "                         ------- -------------"
     printf "  ${BOLD}%-22s %7d  " "TOTAL ACTIVITIES" "${TOTAL_CONTRIBUTIONS}"
     format_diff "$TOTAL_CONTRIBUTIONS" "$PREV_TOTAL"
     printf "${NC}\n"
 else
     printf "  %-30s %10s\n" "COMMITS (PUBLIC)" "${PUBLIC_COMMITS}"
-    printf "  %-30s %10s\n" "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
+    if [ "$PUBLIC_ONLY" = false ]; then
+        printf "  %-30s %10s\n" "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
+    fi
     echo "                                  ------------- "
     printf "  ${BOLD}%-30s %10s${NC}\n" "TOTAL ACTIVITIES" "${TOTAL_CONTRIBUTIONS}"
 fi
