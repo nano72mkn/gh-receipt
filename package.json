@@ -1,0 +1,44 @@
+{
+  "name": "gh-receipt",
+  "version": "1.0.0",
+  "description": "📊 Your GitHub activity receipt - Beautiful contribution reports for your terminal",
+  "main": "gh-activity",
+  "bin": {
+    "gh-receipt": "./gh-receipt"
+  },
+  "files": [
+    "gh-activity",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "github",
+    "activity",
+    "stats",
+    "report",
+    "cli",
+    "gh",
+    "contributions",
+    "commits"
+  ],
+  "author": "nano72mkn",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nano72mkn/gh-receipt.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nano72mkn/gh-receipt/issues"
+  },
+  "homepage": "https://github.com/nano72mkn/gh-receipt#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "preferGlobal": true,
+  "os": [
+    "darwin",
+    "linux"
+  ]
+}

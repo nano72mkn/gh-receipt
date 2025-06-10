@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+set -e
+
+# デフォルト値
+USERNAME="${1:-$(gh api user -q .login 2>/dev/null || echo "")}"
+DAYS="${2:-30}"
+
+# ユーザー名チェック
+if [ -z "$USERNAME" ]; then
+    echo "エラー: ユーザー名を指定するか、gh auth login でログインしてください"
+    exit 1
+fi
+
+# 色の定義
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+GRAY='\033[0;90m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# 日付計算（macOS と Linux の両方に対応）
+if date -v -1d >/dev/null 2>&1; then
+    # macOS
+    FROM_DATE=$(date -v-${DAYS}d -u +%Y-%m-%dT%H:%M:%SZ)
+    TODAY=$(date +%Y-%m-%d)
+else
+    # Linux
+    FROM_DATE=$(date -u -d "${DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
+    TODAY=$(date +%Y-%m-%d)
+fi
+
+echo -e "${BLUE}${BOLD}📊 活動データを取得中...${NC}"
+
+# 自分のアカウントかチェック
+CURRENT_USER=$(gh api user -q .login 2>/dev/null || echo "")
+IS_SELF=false
+if [ "$USERNAME" = "$CURRENT_USER" ]; then
+    IS_SELF=true
+fi
+
+# GraphQL クエリでデータ取得
+RESPONSE=$(gh api graphql -f query='
+  query($username: String!, $from: DateTime!, $to: DateTime!) {
+    user(login: $username) {
+      contributionsCollection(from: $from, to: $to) {
+        totalCommitContributions
+        totalPullRequestContributions
+        totalPullRequestReviewContributions
+        totalIssueContributions
+        restrictedContributionsCount
+        contributionCalendar {
+          totalContributions
+          weeks {
+            contributionDays {
+              date
+              contributionCount
+            }
+          }
+        }
+      }
+    }
+  }
+' -f username="$USERNAME" -f from="$FROM_DATE" -f to="${TODAY}T23:59:59Z" 2>/dev/null) || {
+    echo -e "${RED}エラー: データの取得に失敗しました${NC}"
+    exit 1
+}
+
+# データ解析
+PUBLIC_COMMITS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.totalCommitContributions')
+PUBLIC_PRS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.totalPullRequestContributions')
+PUBLIC_REVIEWS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.totalPullRequestReviewContributions')
+PUBLIC_ISSUES=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.totalIssueContributions')
+PRIVATE_TOTAL=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.restrictedContributionsCount // 0')
+TOTAL_CONTRIBUTIONS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.totalContributions')
+
+# 実際の合計を計算
+TOTAL_COMMITS=$((PUBLIC_COMMITS + PRIVATE_TOTAL))
+TOTAL_PUBLIC=$((PUBLIC_COMMITS + PUBLIC_PRS + PUBLIC_REVIEWS + PUBLIC_ISSUES))
+
+# ヘッダー（シンプルに）
+echo
+echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}${BOLD}       🧾 GitHub Activity Receipt${NC}"
+echo -e "${GRAY}              Last ${DAYS} days${NC}"
+echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+# 統計表示（SNS用にシンプルに）
+echo
+echo -e "${GREEN}${BOLD}📈 Activity Summary${NC}"
+echo
+echo -e "  ${MAGENTA}${BOLD}Total Contributions${NC}"
+echo -e "  ${YELLOW}${BOLD}${TOTAL_CONTRIBUTIONS}${NC} activities"
+echo
+echo -e "  ${CYAN}${BOLD}Breakdown${NC}"
+echo -e "  ├─ Commits (Public):     ${GREEN}${PUBLIC_COMMITS}${NC}"
+echo -e "  ├─ Commits (Private):    ${GREEN}${PRIVATE_TOTAL}${NC}"
+echo -e "  ├─ Pull Requests:        ${GREEN}${PUBLIC_PRS}${NC}"
+echo -e "  ├─ Code Reviews:         ${GREEN}${PUBLIC_REVIEWS}${NC}"
+echo -e "  └─ Issues:               ${GREEN}${PUBLIC_ISSUES}${NC}"
+
+# 週間アクティビティ（シンプルなグラフ）
+echo
+echo -e "${CYAN}${BOLD}📅 Weekly Activity${NC}"
+echo
+
+# 最後の週のデータを取得して表示
+echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.weeks[-1].contributionDays[] | 
+  "\(.date)|\(.contributionCount)"' | tail -7 | {
+    max_count=0
+    data=""
+    while IFS='|' read -r date count; do
+        if [ "$count" -gt "$max_count" ]; then
+            max_count=$count
+        fi
+        data="${data}${date}|${count}\n"
+    done
+    
+    # グラフのスケール調整
+    scale=1
+    if [ "$max_count" -gt 15 ]; then
+        scale=$((max_count / 15 + 1))
+    fi
+    
+    echo -e "$data" | while IFS='|' read -r date count; do
+        if [ -n "$date" ]; then
+            # 日付フォーマット
+            day_name=$(date -j -f "%Y-%m-%d" "$date" "+%a" 2>/dev/null || date -d "$date" "+%a")
+            
+            # バー作成
+            if [ "$count" -gt 0 ]; then
+                bar_length=$((count / scale))
+                [ "$bar_length" -eq 0 ] && bar_length=1
+                bar=$(printf '▓%.0s' $(seq 1 $bar_length))
+                bar_color="${GREEN}"
+            else
+                bar="░"
+                bar_color="${GRAY}"
+            fi
+            
+            # 今日は強調
+            if [ "$date" = "$TODAY" ]; then
+                printf "  ${YELLOW}${BOLD}%-3s${NC} ${bar_color}%-15s${NC} ${BOLD}%2d${NC}\n" "$day_name" "$bar" "$count"
+            else
+                printf "  %-3s ${bar_color}%-15s${NC} %2d\n" "$day_name" "$bar" "$count"
+            fi
+        fi
+    done
+}
+
+# モチベーショナルメッセージ
+echo
+if [ "$TOTAL_CONTRIBUTIONS" -gt 100 ]; then
+    echo -e "${YELLOW}${BOLD}🔥 Amazing work! Keep it up!${NC}"
+elif [ "$TOTAL_CONTRIBUTIONS" -gt 50 ]; then
+    echo -e "${GREEN}${BOLD}✨ Great progress!${NC}"
+elif [ "$TOTAL_CONTRIBUTIONS" -gt 10 ]; then
+    echo -e "${CYAN}${BOLD}👍 Nice activity!${NC}"
+else
+    echo -e "${MAGENTA}${BOLD}🌱 Every contribution counts!${NC}"
+fi
+
+echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
