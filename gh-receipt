@@ -1,14 +1,77 @@
 #!/usr/bin/env bash
 set -e
 
-# デフォルト値
-USERNAME="${1:-$(gh api user -q .login 2>/dev/null || echo "")}"
-DAYS="${2:-30}"
+# ヘルプ表示
+show_help() {
+    cat << EOF
+Usage: gh-receipt [USERNAME] [OPTIONS]
 
-# ユーザー名チェック
+GitHub の活動レシートを美しく表示します
+
+Options:
+  -h, --help      このヘルプを表示
+  -d, --days N    過去N日間のデータを表示 (デフォルト: 30)
+  -w, --weekly    過去7日間のデータを表示
+  -m, --monthly   過去30日間のデータを表示
+  -y, --yearly    過去365日間のデータを表示
+
+Examples:
+  gh-receipt                    # 自分の過去30日間の活動
+  gh-receipt nano72mkn          # 特定ユーザーの過去30日間
+  gh-receipt -w                 # 自分の過去7日間
+  gh-receipt nano72mkn --weekly # 特定ユーザーの過去7日間
+  gh-receipt nano72mkn -d 90    # 特定ユーザーの過去90日間
+EOF
+}
+
+# デフォルト値
+USERNAME=""
+DAYS=30
+
+# 引数解析
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -w|--weekly)
+            DAYS=7
+            shift
+            ;;
+        -m|--monthly)
+            DAYS=30
+            shift
+            ;;
+        -y|--yearly)
+            DAYS=365
+            shift
+            ;;
+        -d|--days)
+            DAYS="$2"
+            shift 2
+            ;;
+        -*)
+            echo "エラー: 不明なオプション: $1"
+            echo "詳細は gh-receipt --help を参照してください"
+            exit 1
+            ;;
+        *)
+            if [ -z "$USERNAME" ]; then
+                USERNAME="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+# ユーザー名が指定されていない場合は現在のユーザーを使用
 if [ -z "$USERNAME" ]; then
-    echo "エラー: ユーザー名を指定するか、gh auth login でログインしてください"
-    exit 1
+    USERNAME=$(gh api user -q .login 2>/dev/null || echo "")
+    if [ -z "$USERNAME" ]; then
+        echo "エラー: ユーザー名を指定するか、gh auth login でログインしてください"
+        exit 1
+    fi
 fi
 
 # 色の定義
@@ -81,11 +144,19 @@ TOTAL_CONTRIBUTIONS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollecti
 TOTAL_COMMITS=$((PUBLIC_COMMITS + PRIVATE_TOTAL))
 TOTAL_PUBLIC=$((PUBLIC_COMMITS + PUBLIC_PRS + PUBLIC_REVIEWS + PUBLIC_ISSUES))
 
+# 期間の表示文字列
+case $DAYS in
+    7)  PERIOD_TEXT="Weekly" ;;
+    30) PERIOD_TEXT="Monthly" ;;
+    365) PERIOD_TEXT="Yearly" ;;
+    *)  PERIOD_TEXT="Last ${DAYS} days" ;;
+esac
+
 # ヘッダー（シンプルに）
 echo
 echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BLUE}${BOLD}       🧾 GitHub Activity Receipt${NC}"
-echo -e "${GRAY}              Last ${DAYS} days${NC}"
+echo -e "${GRAY}              ${PERIOD_TEXT}${NC}"
 echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 # 統計表示（SNS用にシンプルに）
@@ -104,12 +175,15 @@ echo -e "  └─ Issues:               ${GREEN}${PUBLIC_ISSUES}${NC}"
 
 # 週間アクティビティ（シンプルなグラフ）
 echo
-echo -e "${CYAN}${BOLD}📅 Weekly Activity${NC}"
+echo -e "${CYAN}${BOLD}📅 Daily Activity${NC}"
 echo
+
+# 表示する日数を調整（最大7日）
+DISPLAY_DAYS=$((DAYS > 7 ? 7 : DAYS))
 
 # 最後の週のデータを取得して表示
 echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.weeks[-1].contributionDays[] | 
-  "\(.date)|\(.contributionCount)"' | tail -7 | {
+  "\(.date)|\(.contributionCount)"' | tail -${DISPLAY_DAYS} | {
     max_count=0
     data=""
     while IFS='|' read -r date count; do
