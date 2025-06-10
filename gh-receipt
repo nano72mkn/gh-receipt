@@ -74,36 +74,26 @@ if [ -z "$USERNAME" ]; then
     fi
 fi
 
-# 色の定義
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-GRAY='\033[0;90m'
+# 色の定義（レシート風にモノクロメイン）
+DIM='\033[2m'
 BOLD='\033[1m'
-NC='\033[0m' # No Color
+REVERSE='\033[7m'
+NC='\033[0m'
 
 # 日付計算（macOS と Linux の両方に対応）
 if date -v -1d >/dev/null 2>&1; then
     # macOS
     FROM_DATE=$(date -v-${DAYS}d -u +%Y-%m-%dT%H:%M:%SZ)
     TODAY=$(date +%Y-%m-%d)
+    CURRENT_TIME=$(date "+%Y/%m/%d %H:%M:%S")
 else
     # Linux
     FROM_DATE=$(date -u -d "${DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
     TODAY=$(date +%Y-%m-%d)
+    CURRENT_TIME=$(date "+%Y/%m/%d %H:%M:%S")
 fi
 
-echo -e "${BLUE}${BOLD}📊 活動データを取得中...${NC}"
-
-# 自分のアカウントかチェック
-CURRENT_USER=$(gh api user -q .login 2>/dev/null || echo "")
-IS_SELF=false
-if [ "$USERNAME" = "$CURRENT_USER" ]; then
-    IS_SELF=true
-fi
+echo -e "${DIM}データ取得中...${NC}"
 
 # GraphQL クエリでデータ取得
 RESPONSE=$(gh api graphql -f query='
@@ -128,7 +118,7 @@ RESPONSE=$(gh api graphql -f query='
     }
   }
 ' -f username="$USERNAME" -f from="$FROM_DATE" -f to="${TODAY}T23:59:59Z" 2>/dev/null) || {
-    echo -e "${RED}エラー: データの取得に失敗しました${NC}"
+    echo -e "エラー: データの取得に失敗しました"
     exit 1
 }
 
@@ -140,101 +130,65 @@ PUBLIC_ISSUES=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.tot
 PRIVATE_TOTAL=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.restrictedContributionsCount // 0')
 TOTAL_CONTRIBUTIONS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.totalContributions')
 
-# 実際の合計を計算
-TOTAL_COMMITS=$((PUBLIC_COMMITS + PRIVATE_TOTAL))
-TOTAL_PUBLIC=$((PUBLIC_COMMITS + PUBLIC_PRS + PUBLIC_REVIEWS + PUBLIC_ISSUES))
+# レシート風出力
+echo
+echo "================================================"
+echo "                                                "
+echo "            GITHUB ACTIVITY RECEIPT             "
+echo "                                                "
+echo "================================================"
+echo "  ${CURRENT_TIME}                    "
+echo "  USER: @${USERNAME}                           "
+echo "------------------------------------------------"
+echo "                                                "
+printf "  %-30s %10s\n" "COMMITS (PUBLIC)" "${PUBLIC_COMMITS}"
+printf "  %-30s %10s\n" "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
+printf "  %-30s %10s\n" "PULL REQUESTS" "${PUBLIC_PRS}"
+printf "  %-30s %10s\n" "CODE REVIEWS" "${PUBLIC_REVIEWS}"
+printf "  %-30s %10s\n" "ISSUES" "${PUBLIC_ISSUES}"
+echo "                                  ------------- "
+printf "  ${BOLD}%-30s %10s${NC}\n" "TOTAL ACTIVITIES" "${TOTAL_CONTRIBUTIONS}"
+echo "================================================"
+echo "                                                "
 
-# 期間の表示文字列
-case $DAYS in
-    7)  PERIOD_TEXT="Weekly" ;;
-    30) PERIOD_TEXT="Monthly" ;;
-    365) PERIOD_TEXT="Yearly" ;;
-    *)  PERIOD_TEXT="Last ${DAYS} days" ;;
-esac
+# 週間サマリー（レシート風）
+echo "  DAILY BREAKDOWN (LAST 7 DAYS)                "
+echo "  -----------------------------                "
 
-# ヘッダー（シンプルに）
-echo
-echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}${BOLD}       🧾 GitHub Activity Receipt${NC}"
-echo -e "${GRAY}              ${PERIOD_TEXT}${NC}"
-echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-# 統計表示（SNS用にシンプルに）
-echo
-echo -e "${GREEN}${BOLD}📈 Activity Summary${NC}"
-echo
-echo -e "  ${MAGENTA}${BOLD}Total Contributions${NC}"
-echo -e "  ${YELLOW}${BOLD}${TOTAL_CONTRIBUTIONS}${NC} activities"
-echo
-echo -e "  ${CYAN}${BOLD}Breakdown${NC}"
-echo -e "  ├─ Commits (Public):     ${GREEN}${PUBLIC_COMMITS}${NC}"
-echo -e "  ├─ Commits (Private):    ${GREEN}${PRIVATE_TOTAL}${NC}"
-echo -e "  ├─ Pull Requests:        ${GREEN}${PUBLIC_PRS}${NC}"
-echo -e "  ├─ Code Reviews:         ${GREEN}${PUBLIC_REVIEWS}${NC}"
-echo -e "  └─ Issues:               ${GREEN}${PUBLIC_ISSUES}${NC}"
-
-# 週間アクティビティ（シンプルなグラフ）
-echo
-echo -e "${CYAN}${BOLD}📅 Daily Activity${NC}"
-echo
-
-# 表示する日数を調整（最大7日）
+# 最後の7日分のデータを取得
 DISPLAY_DAYS=$((DAYS > 7 ? 7 : DAYS))
-
-# 最後の週のデータを取得して表示
 echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.weeks[-1].contributionDays[] | 
   "\(.date)|\(.contributionCount)"' | tail -${DISPLAY_DAYS} | {
-    max_count=0
-    data=""
     while IFS='|' read -r date count; do
-        if [ "$count" -gt "$max_count" ]; then
-            max_count=$count
-        fi
-        data="${data}${date}|${count}\n"
-    done
-    
-    # グラフのスケール調整
-    scale=1
-    if [ "$max_count" -gt 15 ]; then
-        scale=$((max_count / 15 + 1))
-    fi
-    
-    echo -e "$data" | while IFS='|' read -r date count; do
         if [ -n "$date" ]; then
             # 日付フォーマット
-            day_name=$(date -j -f "%Y-%m-%d" "$date" "+%a" 2>/dev/null || date -d "$date" "+%a")
+            day_display=$(date -j -f "%Y-%m-%d" "$date" "+%m/%d %a" 2>/dev/null || date -d "$date" "+%m/%d %a")
             
-            # バー作成
+            # 棒グラフ（レシート風に * で表現）
             if [ "$count" -gt 0 ]; then
-                bar_length=$((count / scale))
-                [ "$bar_length" -eq 0 ] && bar_length=1
-                bar=$(printf '▓%.0s' $(seq 1 $bar_length))
-                bar_color="${GREEN}"
+                bar=$(printf '*%.0s' $(seq 1 $((count > 20 ? 20 : count))))
             else
-                bar="░"
-                bar_color="${GRAY}"
+                bar="-"
             fi
             
-            # 今日は強調
-            if [ "$date" = "$TODAY" ]; then
-                printf "  ${YELLOW}${BOLD}%-3s${NC} ${bar_color}%-15s${NC} ${BOLD}%2d${NC}\n" "$day_name" "$bar" "$count"
-            else
-                printf "  %-3s ${bar_color}%-15s${NC} %2d\n" "$day_name" "$bar" "$count"
-            fi
+            printf "  %-10s [%-20s] %3d\n" "$day_display" "$bar" "$count"
         fi
     done
 }
 
-# モチベーショナルメッセージ
-echo
-if [ "$TOTAL_CONTRIBUTIONS" -gt 100 ]; then
-    echo -e "${YELLOW}${BOLD}🔥 Amazing work! Keep it up!${NC}"
-elif [ "$TOTAL_CONTRIBUTIONS" -gt 50 ]; then
-    echo -e "${GREEN}${BOLD}✨ Great progress!${NC}"
-elif [ "$TOTAL_CONTRIBUTIONS" -gt 10 ]; then
-    echo -e "${CYAN}${BOLD}👍 Nice activity!${NC}"
-else
-    echo -e "${MAGENTA}${BOLD}🌱 Every contribution counts!${NC}"
-fi
+echo "                                                "
+echo "================================================"
 
-echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+# レシート番号とバーコード風
+RECEIPT_NO=$(echo "${USERNAME}${DAYS}${TODAY}" | md5sum | cut -c1-12 | tr '[:lower:]' '[:upper:]')
+echo "  NO: ${RECEIPT_NO}                             "
+echo "                                                "
+echo "  |||||| |||| | |||| ||| |||| ||||||| |||||||  "
+echo "  ${RECEIPT_NO}                                  "
+echo "                                                "
+echo "================================================"
+echo "         Thank you for your commits!            "
+echo "            Have a productive day!              "
+echo "================================================"
+echo
+echo -e "${DIM}Powered by gh-receipt${NC}"
