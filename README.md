@@ -86,9 +86,6 @@ gh auth status
                                                 
   COMMITS (PUBLIC)                        3
   COMMITS (PRIVATE)                     581
-  PULL REQUESTS                           0
-  CODE REVIEWS                            0
-  ISSUES                                  0
                                   ------------- 
   TOTAL ACTIVITIES                      584
 ================================================

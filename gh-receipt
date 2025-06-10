@@ -125,9 +125,6 @@ get_period_data() {
         user(login: $username) {
           contributionsCollection(from: $from, to: $to) {
             totalCommitContributions
-            totalPullRequestContributions
-            totalPullRequestReviewContributions
-            totalIssueContributions
             restrictedContributionsCount
             contributionCalendar {
               totalContributions
@@ -152,9 +149,6 @@ RESPONSE=$(get_period_data "$FROM_DATE" "${TODAY}T23:59:59Z") || {
 
 # データ解析
 PUBLIC_COMMITS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.totalCommitContributions')
-PUBLIC_PRS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.totalPullRequestContributions')
-PUBLIC_REVIEWS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.totalPullRequestReviewContributions')
-PUBLIC_ISSUES=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.totalIssueContributions')
 PRIVATE_TOTAL=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.restrictedContributionsCount // 0')
 TOTAL_CONTRIBUTIONS=$(echo "$RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.totalContributions')
 
@@ -167,9 +161,6 @@ if [ "$SHOW_DIFF" = true ]; then
     
     if [ "$SHOW_DIFF" = true ]; then
         PREV_PUBLIC_COMMITS=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.totalCommitContributions')
-        PREV_PUBLIC_PRS=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.totalPullRequestContributions')
-        PREV_PUBLIC_REVIEWS=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.totalPullRequestReviewContributions')
-        PREV_PUBLIC_ISSUES=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.totalIssueContributions')
         PREV_PRIVATE_TOTAL=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.restrictedContributionsCount // 0')
         PREV_TOTAL=$(echo "$PREV_RESPONSE" | jq -r '.data.user.contributionsCollection.contributionCalendar.totalContributions')
     fi
@@ -218,25 +209,13 @@ if [ "$SHOW_DIFF" = true ]; then
     printf "  %-22s %7d  " "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
     format_diff "$PRIVATE_TOTAL" "$PREV_PRIVATE_TOTAL"
     echo
-    printf "  %-22s %7d  " "PULL REQUESTS" "${PUBLIC_PRS}"
-    format_diff "$PUBLIC_PRS" "$PREV_PUBLIC_PRS"
-    echo
-    printf "  %-22s %7d  " "CODE REVIEWS" "${PUBLIC_REVIEWS}"
-    format_diff "$PUBLIC_REVIEWS" "$PREV_PUBLIC_REVIEWS"
-    echo
-    printf "  %-22s %7d  " "ISSUES" "${PUBLIC_ISSUES}"
-    format_diff "$PUBLIC_ISSUES" "$PREV_PUBLIC_ISSUES"
-    echo
     echo "                         ------- -------------"
     printf "  ${BOLD}%-22s %7d  " "TOTAL ACTIVITIES" "${TOTAL_CONTRIBUTIONS}"
     format_diff "$TOTAL_CONTRIBUTIONS" "$PREV_TOTAL"
-    echo "${NC}"
+    printf "${NC}\n"
 else
     printf "  %-30s %10s\n" "COMMITS (PUBLIC)" "${PUBLIC_COMMITS}"
     printf "  %-30s %10s\n" "COMMITS (PRIVATE)" "${PRIVATE_TOTAL}"
-    printf "  %-30s %10s\n" "PULL REQUESTS" "${PUBLIC_PRS}"
-    printf "  %-30s %10s\n" "CODE REVIEWS" "${PUBLIC_REVIEWS}"
-    printf "  %-30s %10s\n" "ISSUES" "${PUBLIC_ISSUES}"
     echo "                                  ------------- "
     printf "  ${BOLD}%-30s %10s${NC}\n" "TOTAL ACTIVITIES" "${TOTAL_CONTRIBUTIONS}"
 fi
