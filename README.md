@@ -17,7 +17,13 @@
 
 ## インストール
 
-### npm でインストール（推奨）
+### npx で実行（インストール不要）
+```bash
+npx gh-receipt
+npx gh-receipt nano72mkn
+```
+
+### グローバルインストール
 ```bash
 npm install -g gh-receipt
 ```

@@ -2,12 +2,11 @@
   "name": "gh-receipt",
   "version": "1.0.0",
   "description": "📊 Your GitHub activity receipt - Beautiful contribution reports for your terminal",
-  "main": "gh-activity",
   "bin": {
     "gh-receipt": "./gh-receipt"
   },
   "files": [
-    "gh-activity",
+    "gh-receipt",
     "README.md"
   ],
   "scripts": {
